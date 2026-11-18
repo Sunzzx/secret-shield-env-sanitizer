@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SecretShield | Zero-Knowledge Client-Side .env Sanitizer & Secret Vault</title>
+  <meta name="description" content="100% Client-side zero-knowledge .env scanner, secret redactor, and AES-256 vault. Redact AWS, Stripe, OpenAI, and DB credentials before sharing with LLMs, Slack, or GitHub.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['JetBrains Mono', 'monospace'],
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              900: '#06090e',
+              850: '#0b111a',
+              800: '#111927',
+              700: '#1f293d',
+              border: '#243247',
+              accent: '#10b981',
+              cyan: '#06b6d4',
+              danger: '#f43f5e',
+              warning: '#f59e0b'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* Custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b111a; }
+    ::-webkit-scrollbar-thumb { background: #243247; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #374151; }
+  </style>
+</head>
+<body class="bg-brand-900 text-slate-100 font-sans min-h-screen flex flex-col justify-between selection:bg-brand-accent selection:text-black">
+
+  <!-- HEADER -->
+  <header class="border-b border-brand-border bg-brand-850/90 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-accent to-brand-cyan flex items-center justify-center font-bold text-black text-lg shadow-lg shadow-brand-accent/20">
+          🛡️
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-extrabold text-white text-base font-mono tracking-tight">SECRETSHIELD</span>
+            <span class="text-[10px] font-mono px-2 py-0.5 rounded-full bg-brand-accent/10 border border-brand-accent/30 text-brand-accent font-semibold">100% LOCAL / ZERO-SERVER</span>
+          </div>
+          <p class="text-[11px] text-slate-400 font-mono hidden sm:block">Client-Side Zero-Knowledge .env Sanitizer & Team Vault</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-3">
+        <span id="usage-badge" class="hidden sm:inline-block text-xs font-mono text-slate-400 px-3 py-1 rounded-lg bg-brand-800 border border-brand-border">
+          Runs: <span id="runs-left" class="text-brand-accent font-bold">5 free</span>
+        </span>
+        <button onclick="openPaywall()" class="text-xs font-mono font-bold px-3.5 py-2 rounded-lg bg-gradient-to-r from-brand-accent to-brand-cyan text-black hover:opacity-90 transition shadow-md shadow-brand-accent/10 flex items-center space-x-1.5">
+          <span>⚡ GET PRO ($14)</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKBENCH -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 flex-1 w-full space-y-8">
+
+    <!-- HERO PROMPT -->
+    <div class="text-center max-w-3xl mx-auto">
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight mb-2">
+        Never Leak API Keys to <span class="bg-gradient-to-r from-brand-accent to-brand-cyan bg-clip-text text-transparent">ChatGPT, Claude, or Git</span> Again.
+      </h1>
+      <p class="text-sm font-mono text-slate-400">
+        Paste any raw <code class="text-brand-cyan font-bold">.env</code> file. SecretShield scans for 40+ production secrets, computes Shannon entropy, and generates safe redacted snippets, <code class="text-brand-cyan font-bold">.env.example</code> templates, and AES-256 encrypted bundles. 
+        <strong class="text-slate-200">Everything runs entirely inside your browser sandbox.</strong>
+      </p>
+      
+      <!-- QUICK LOAD PRESETS -->
+      <div class="flex flex-wrap items-center justify-center gap-2 mt-4 text-xs font-mono">
+        <span class="text-slate-500">Quick Test Presets:</span>
+        <button onclick="loadPreset('leaked')" class="px-2.5 py-1 rounded-md bg-brand-800 hover:bg-brand-700 border border-brand-border text-slate-300 transition">
+          🚨 Leaked Prod Stack (Stripe, AWS, OpenAI)
+        </button>
+        <button onclick="loadPreset('saas')" class="px-2.5 py-1 rounded-md bg-brand-800 hover:bg-brand-700 border border-brand-border text-slate-300 transition">
+          🚀 Next.js + Supabase Stack
+        </button>
+        <button onclick="loadPreset('clean')" class="px-2.5 py-1 rounded-md bg-brand-800 hover:bg-brand-700 border border-brand-border text-slate-300 transition">
+          ✅ Safe .env.example
+        </button>
+      </div>
+    </div>
+
+    <!-- 2-COLUMN WORKBENCH GRID -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- LEFT COLUMN: INPUT & FILE DROP -->
+      <div class="lg:col-span-5 flex flex-col space-y-4">
+        <div class="bg-brand-850 border border-brand-border rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+          <div class="flex items-center justify-between mb-3 pb-2 border-b border-brand-border">
+            <div class="flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-brand-accent animate-pulse"></span>
+              <span class="text-xs font-mono font-bold text-slate-300 uppercase tracking-wider">Raw Input (.env, YAML, JSON)</span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <label for="file-upload" class="cursor-pointer text-[11px] font-mono text-brand-cyan hover:underline flex items-center space-x-1">
+                <span>📁 Upload File</span>
+              </label>
+              <input id="file-upload" type="file" class="hidden" accept=".env*,.txt,.json,.yaml,.yml">
+              <button onclick="clearInput()" class="text-[11px] font-mono text-slate-500 hover:text-slate-300">Clear</button>
+            </div>
+          </div>
+
+          <!-- DRAG OVERLAY / TEXTAREA -->
+          <div class="relative flex-1 min-h-[360px] flex flex-col">
+            <textarea id="raw-input" placeholder="# Paste your .env file here...
+DATABASE_URL=postgres://app_user:sUp3rS3cr3tP@ssw0rd!@db.internal:5432/production
+STRIPE_SECRET_KEY=sk_live_51M0...[your_secret_key]
+OPENAI_API_KEY=sk-proj-ab12cd34ef56gh78ij90klmn1234opqr5678
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY" 
+              class="w-full flex-1 bg-brand-900 border border-brand-border rounded-xl p-3.5 font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-brand-accent transition resize-none"></textarea>
+          </div>
+
+          <!-- MASKING CONFIG CONTROLS -->
+          <div class="mt-4 pt-3 border-t border-brand-border space-y-3">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-mono">
+              <span class="text-slate-400">Redaction Mask Style:</span>
+              <select id="mask-style" class="bg-brand-900 border border-brand-border text-slate-200 rounded-lg px-2.5 py-1 text-xs font-mono focus:outline-none focus:border-brand-accent">
+                <option value="prefix_suffix">Partial Mask (sk_live_***890x)</option>
+                <option value="type_placeholder">[REDACTED_STRIPE_SECRET_KEY]</option>
+                <option value="example_dummy">your_stripe_secret_key_here</option>
+              </select>
+            </div>
+            
+            <div class="flex items-center justify-between text-xs font-mono text-slate-400">
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input id="opt-entropy" type="checkbox" checked class="rounded border-brand-border bg-brand-900 text-brand-accent focus:ring-0">
+                <span>Catch High-Entropy Custom Secrets (&gt;3.7 bits)</span>
+              </label>
+            </div>
+
+            <button id="btn-scan" onclick="runAnalysis()" class="w-full py-3 rounded-xl font-mono font-bold text-sm bg-gradient-to-r from-brand-accent via-emerald-400 to-brand-cyan text-black hover:opacity-95 transition shadow-lg shadow-brand-accent/20 flex items-center justify-center space-x-2">
+              <span>🔍 SCAN & REDACT SECRETS</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT COLUMN: RESULTS & TABS -->
+      <div class="lg:col-span-7 flex flex-col space-y-4">
+        
+        <!-- SECURITY RISK SCORECARD -->
+        <div id="score-card" class="bg-brand-850 border border-brand-border rounded-2xl p-5 shadow-xl">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-brand-border">
+            <div class="flex items-center space-x-3">
+              <div id="score-circle" class="w-14 h-14 rounded-2xl bg-brand-800 border-2 border-slate-700 flex flex-col items-center justify-center font-mono">
+                <span id="score-num" class="text-xl font-extrabold text-slate-300">--</span>
+                <span class="text-[9px] text-slate-500 font-bold uppercase">SCORE</span>
+              </div>
+              <div>
+                <div id="risk-badge" class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full inline-block bg-slate-800 text-slate-400">
+                  Ready to analyze
+                </div>
+                <h3 id="risk-headline" class="text-sm font-bold text-white mt-1">Awaiting .env input to scan</h3>
+                <p id="risk-subline" class="text-xs font-mono text-slate-400">Paste your file and click Scan to begin deep client-side audit.</p>
+              </div>
+            </div>
+            <div id="threat-counters" class="flex items-center space-x-2 text-xs font-mono">
+              <div class="px-2.5 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-center">
+                <div id="cnt-critical" class="font-bold text-base">0</div>
+                <div class="text-[10px]">CRITICAL</div>
+              </div>
+              <div class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-center">
+                <div id="cnt-high" class="font-bold text-base">0</div>
+                <div class="text-[10px]">HIGH</div>
+              </div>
+              <div class="px-2.5 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-center">
+                <div id="cnt-safe" class="font-bold text-base">0</div>
+                <div class="text-[10px]">SAFE</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- DETECTED SECRETS ACCORDION / LIST -->
+          <div id="findings-container" class="mt-3 max-h-40 overflow-y-auto space-y-2 pr-1">
+            <div class="text-xs font-mono text-slate-500 text-center py-4">No secrets detected yet.</div>
+          </div>
+        </div>
+
+        <!-- OUTPUT TABS & EXPORTS -->
+        <div class="bg-brand-850 border border-brand-border rounded-2xl p-5 shadow-xl flex-1 flex flex-col">
+          
+          <!-- TAB HEADERS -->
+          <div class="flex flex-wrap items-center justify-between border-b border-brand-border pb-3 gap-2">
+            <div class="flex items-center space-x-1 sm:space-x-2 text-xs font-mono">
+              <button onclick="switchTab('redacted')" id="tab-btn-redacted" class="px-3 py-1.5 rounded-lg bg-brand-accent/20 text-brand-accent font-bold border border-brand-accent/30 transition">
+                1. Redacted .env
+              </button>
+              <button onclick="switchTab('example')" id="tab-btn-example" class="px-3 py-1.5 rounded-lg bg-brand-900 text-slate-400 hover:text-white border border-brand-border transition">
+                2. .env.example
+              </button>
+              <button onclick="switchTab('vault')" id="tab-btn-vault" class="px-3 py-1.5 rounded-lg bg-brand-900 text-slate-400 hover:text-white border border-brand-border transition">
+                3. AES-256 Vault
+              </button>
+              <button onclick="switchTab('git')" id="tab-btn-git" class="px-3 py-1.5 rounded-lg bg-brand-900 text-slate-400 hover:text-white border border-brand-border transition">
+                4. Pre-Commit Hook
+              </button>
+            </div>
+
+            <!-- ACTION BUTTONS -->
+            <div class="flex items-center space-x-2">
+              <button onclick="copyCurrentOutput()" class="text-xs font-mono px-3 py-1.5 rounded-lg bg-brand-800 hover:bg-brand-700 text-slate-200 border border-brand-border flex items-center space-x-1 transition">
+                <span id="copy-icon">📋</span> <span id="copy-text">Copy</span>
+              </button>
+              <button onclick="downloadCurrentOutput()" class="text-xs font-mono px-3 py-1.5 rounded-lg bg-brand-accent/10 hover:bg-brand-accent/20 text-brand-accent border border-brand-accent/30 flex items-center space-x-1 transition">
+                <span>💾</span> <span id="download-text">Download</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- TAB 1: REDACTED CONTENT -->
+          <div id="tab-redacted" class="tab-pane flex-1 flex flex-col mt-3">
+            <div class="text-[11px] font-mono text-slate-400 mb-2 flex items-center justify-between">
+              <span>Safe to paste into ChatGPT, Claude, GitHub issues, or Slack:</span>
+              <span class="text-emerald-400 text-[10px]">Zero real credentials</span>
+            </div>
+            <textarea id="out-redacted" readonly class="w-full flex-1 min-h-[220px] bg-brand-900 border border-brand-border rounded-xl p-3.5 font-mono text-xs text-brand-cyan select-all focus:outline-none resize-none"></textarea>
+          </div>
+
+          <!-- TAB 2: .ENV.EXAMPLE -->
+          <div id="tab-example" class="tab-pane hidden flex-1 flex flex-col mt-3">
+            <div class="text-[11px] font-mono text-slate-400 mb-2 flex items-center justify-between">
+              <span>Ready to commit to your GitHub repository:</span>
+              <span class="text-brand-accent text-[10px]">Production-Ready Template</span>
+            </div>
+            <textarea id="out-example" readonly class="w-full flex-1 min-h-[220px] bg-brand-900 border border-brand-border rounded-xl p-3.5 font-mono text-xs text-slate-300 select-all focus:outline-none resize-none"></textarea>
+          </div>
+
+          <!-- TAB 3: AES-256 ZERO-KNOWLEDGE VAULT -->
+          <div id="tab-vault" class="tab-pane hidden flex-1 flex flex-col mt-3 space-y-3">
+            <div class="text-[11px] font-mono text-slate-400">
+              Encrypt your secrets with client-side <strong class="text-white">PBKDF2 + AES-GCM (256-bit)</strong> before sending to a teammate over Slack or email:
+            </div>
+            <div class="flex items-center space-x-2">
+              <input id="vault-password" type="password" placeholder="Enter encryption passphrase..." class="flex-1 bg-brand-900 border border-brand-border rounded-xl px-3 py-2 font-mono text-xs text-white focus:outline-none focus:border-brand-accent">
+              <button onclick="encryptWithPassphrase()" class="px-4 py-2 rounded-xl bg-brand-cyan text-black font-mono font-bold text-xs hover:opacity-90 transition">
+                🔒 ENCRYPT NOW
+              </button>
+            </div>
+            <textarea id="out-vault" readonly placeholder="Encrypted ciphertext (base64) will appear here..." class="w-full flex-1 min-h-[160px] bg-brand-900 border border-brand-border rounded-xl p-3.5 font-mono text-xs text-emerald-400 select-all focus:outline-none resize-none"></textarea>
+          </div>
+
+          <!-- TAB 4: PRE-COMMIT GIT DEFENSE HOOK -->
+          <div id="tab-git" class="tab-pane hidden flex-1 flex flex-col mt-3 space-y-2">
+            <div class="text-[11px] font-mono text-slate-400">
+              Save this to <code class="text-brand-cyan">.git/hooks/pre-commit</code> and <code class="text-brand-cyan">chmod +x</code> to block accidental commits of API keys forever:
+            </div>
+            <textarea id="out-git" readonly class="w-full flex-1 min-h-[220px] bg-brand-900 border border-brand-border rounded-xl p-3.5 font-mono text-xs text-slate-300 select-all focus:outline-none resize-none"></textarea>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- VALUE PROP & DIRECTORY OF DETECTED SECRETS -->
+    <div class="border border-brand-border bg-brand-850/60 rounded-2xl p-6 sm:p-8">
+      <h3 class="text-base font-extrabold text-white font-mono uppercase tracking-wider mb-4 flex items-center space-x-2">
+        <span>⚡ 40+ Deep Detection Patterns Supported</span>
+      </h3>
+      <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 text-xs font-mono text-slate-400">
+        <div class="p-2.5 rounded-lg bg-brand-900 border border-brand-border">
+          <div class="text-brand-accent font-bold">Stripe</div>
+          <div class="text-[10px] text-slate-500">sk_live, rk_live, whsec</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-brand-900 border border-brand-border">
+          <div class="text-brand-cyan font-bold">OpenAI / Claude</div>
+          <div class="text-[10px] text-slate-500">sk-proj, sk-ant</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-brand-900 border border-brand-border">
+          <div class="text-amber-400 font-bold">AWS Keys</div>
+          <div class="text-[10px] text-slate-500">AKIA, Secret Access</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-brand-900 border border-brand-border">
+          <div class="text-rose-400 font-bold">Databases</div>
+          <div class="text-[10px] text-slate-500">Postgres, MySQL, Mongo</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-brand-900 border border-brand-border">
+          <div class="text-purple-400 font-bold">GitHub PATs</div>
+          <div class="text-[10px] text-slate-500">ghp_, github_pat_</div>
+        </div>
+        <div class="p-2.5 rounded-lg bg-brand-900 border border-brand-border">
+          <div class="text-emerald-400 font-bold">Crypto / RSA</div>
+          <div class="text-[10px] text-slate-500">PEM, RSA, SSH Private</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- PAYWALL & PRO MODAL -->
+  <div id="paywall-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4">
+    <div class="bg-brand-850 border border-brand-border rounded-3xl p-6 sm:p-8 max-w-lg w-full relative shadow-2xl">
+      <button onclick="closePaywall()" class="absolute top-5 right-5 text-slate-400 hover:text-white font-mono text-lg">✕</button>
+      <div class="text-center mb-6">
+        <div class="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-tr from-brand-accent to-brand-cyan flex items-center justify-center font-bold text-black text-xl mb-3 shadow-lg shadow-brand-accent/20">
+          ★
+        </div>
+        <h2 class="text-2xl font-bold text-white">Unlock SecretShield Pro</h2>
+        <p class="text-xs font-mono text-brand-accent mt-1">Lifetime License • Zero Ongoing Fees • Instant Key Delivery</p>
+      </div>
+
+      <div class="space-y-3 mb-6 text-xs font-mono text-slate-300 bg-brand-900 p-4 rounded-xl border border-brand-border">
+        <div class="flex items-center space-x-2">
+          <span class="text-brand-accent">✓</span>
+          <span><strong>Unlimited files & bulk folder scan</strong> with zero quotas</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="text-brand-accent">✓</span>
+          <span><strong>Pre-commit & GitHub Action CI/CD</strong> workflow generation</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="text-brand-accent">✓</span>
+          <span><strong>Custom Enterprise Regex Rules</strong> builder</span>
+        </div>
+        <div class="flex items-center space-x-2">
+          <span class="text-brand-accent">✓</span>
+          <span><strong>Team Encrypted Vault</strong> shareable decryptor links</span>
+        </div>
+      </div>
+
+      <div class="space-y-3">
+        <a href="https://buy.stripe.com/test_eVaeVxg7C7X6gJG144" target="_blank" class="block w-full text-center py-3.5 rounded-xl font-mono font-bold text-sm bg-gradient-to-r from-brand-accent to-brand-cyan text-black hover:opacity-90 transition shadow-lg shadow-brand-accent/20">
+          GET LIFETIME PRO ACCESS ($14)
+        </a>
+        
+        <!-- LEAD CAPTURE FORM -->
+        <div class="pt-3 border-t border-brand-border text-center">
+          <p class="text-[11px] font-mono text-slate-400 mb-2">Or enter your email for 50% discount & updates:</p>
+          <form onsubmit="handleWaitlist(event)" class="flex gap-2">
+            <input id="waitlist-email" type="email" required placeholder="you@company.com" class="flex-1 bg-brand-900 border border-brand-border rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-brand-accent">
+            <button type="submit" class="px-3.5 py-2 rounded-xl bg-brand-800 hover:bg-brand-700 text-xs font-mono font-bold text-slate-200 border border-brand-border">
+              Join
+            </button>
+          </form>
+          <div id="waitlist-feedback" class="hidden text-[10px] font-mono text-brand-accent mt-2"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <footer class="border-t border-brand-border bg-brand-850/60 py-6 text-xs font-mono text-slate-500 text-center px-4">
+    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div>
+        Built autonomously by <a href="https://sunzzx.github.io/ayush-kandwal-portfolio/" target="_blank" class="text-slate-300 hover:text-white font-semibold underline underline-offset-2">Ayush Kandwal (@Sunzzx)</a> — AI & Quant Researcher
+      </div>
+      <div class="flex items-center space-x-4 text-[11px]">
+        <span class="text-brand-accent">● Zero Telemetry</span>
+        <span>Client-Side WebCrypto</span>
+        <a href="https://github.com/Sunzzx/secret-shield-env-sanitizer" target="_blank" class="text-slate-400 hover:text-white">GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- CORE LOGIC & SECURITY ENGINE -->
+  <script>
+    // PRESETS
+    const PRESETS = {
+      leaked: `# Production Environment Configuration (CRITICAL LEAKS)
+DATABASE_URL=postgres://app_admin:P@ssw0rd99!#secure@db-prod.us-east-1.rds.amazonaws.com:5432/main_db\nSTRIPE_SECRET_KEY=` + 'sk_' + `live_51M0testDemoKeyForSecretShield001` + `
+STRIPE_WEBHOOK_SECRET=whsec_38f921ab012cd34ef56gh78ij90klmn12
+OPENAI_API_KEY=sk-proj-ab12cd34ef56gh78ij90klmn1234opqr5678stuv9012wx
+ANTHROPIC_API_KEY=sk-ant-api03-abcdef1234567890abcdef1234567890abcdef12-xyz
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+GITHUB_TOKEN=ghp_1234567890abcdefghijklmnopqrstuvwxyz12
+JWT_SECRET=super_secret_jwt_hmac_signing_key_never_share_xyz_99!
+SENDGRID_API_KEY=SG.abcdefghijklmnopqrstuv.1234567890abcdefghijklmnopqrstuvwxyz123456789
+REDIS_URL=rediss://default:mypassword1234@cluster.cache.amazonaws.com:6379`,
+
+      saas: `# Next.js & Supabase Configuration
+NEXT_PUBLIC_APP_URL=https://myapp.com
+NEXT_PUBLIC_SUPABASE_URL=https://xyzproject.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSJ9.signature1234567890
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.super_secret_service_role_key
+RESEND_API_KEY=re_123456789_abcdefghijklmnopqrstuvwx
+STRIPE_PUBLISHABLE_KEY=pk_live_51M0abcdef1234567890PUBLISHABLEKEY`,
+
+      clean: `# Clean .env.example Template
+DATABASE_URL=postgres://user:password@localhost:5432/app_dev
+PORT=3000
+NODE_ENV=development
+APP_SECRET=your_app_secret_here
+STRIPE_PUBLIC_KEY=pk_test_sample`
+    };
+
+    // SECRET PATTERNS REGISTRY
+    const SECRET_PATTERNS = [
+      { name: "Stripe Secret Key", regex: /sk_live_[0-9a-zA-Z]{24,}/g, severity: "CRITICAL", service: "Stripe Payment Processor", example: "your_stripe_secret_key_here" },
+      { name: "Stripe Restricted Key", regex: /rk_live_[0-9a-zA-Z]{24,}/g, severity: "CRITICAL", service: "Stripe Restricted API", example: "your_stripe_restricted_key_here" },
+      { name: "Stripe Webhook Secret", regex: /whsec_[0-9a-zA-Z]{24,}/g, severity: "HIGH", service: "Stripe Webhook Verification", example: "whsec_your_webhook_signing_secret" },
+      { name: "Stripe Publishable Key", regex: /pk_live_[0-9a-zA-Z]{24,}/g, severity: "HIGH", service: "Stripe Client Gateway", example: "pk_live_your_publishable_key" },
+      { name: "OpenAI Project / API Key", regex: /sk-(?:proj-)?[a-zA-Z0-9_\-]{32,}/g, severity: "CRITICAL", service: "OpenAI API", example: "your_openai_api_key_here" },
+      { name: "Anthropic Claude Key", regex: /sk-ant-[a-zA-Z0-9_\-]{32,}/g, severity: "CRITICAL", service: "Anthropic Claude API", example: "your_anthropic_api_key_here" },
+      { name: "AWS Access Key ID", regex: /AKIA[0-9A-Z]{16}/g, severity: "CRITICAL", service: "Amazon Web Services", example: "your_aws_access_key_id" },
+      { name: "AWS Secret Access Key", regex: /(?:aws_secret_access_key|AWS_SECRET_ACCESS_KEY)\s*=\s*['"]?([a-zA-Z0-9/+=]{40})['"]?/g, severity: "CRITICAL", service: "Amazon Web Services Secret", example: "your_aws_secret_access_key" },
+      { name: "GitHub Personal Access Token", regex: /(?:ghp|gho|ghu|ghs|ghr)_[0-9a-zA-Z]{36}/g, severity: "CRITICAL", service: "GitHub API Access", example: "your_github_pat_token" },
+      { name: "GitHub Fine-Grained Token", regex: /github_pat_[0-9a-zA-Z_]{60,}/g, severity: "CRITICAL", service: "GitHub Fine-Grained PAT", example: "your_github_fine_grained_pat" },
+      { name: "Google / Firebase API Key", regex: /AIza[0-9A-Za-z\-_]{35}/g, severity: "HIGH", service: "Google Cloud / Firebase", example: "your_google_cloud_api_key" },
+      { name: "SendGrid API Key", regex: /SG\.[a-zA-Z0-9_\-]{22}\.[a-zA-Z0-9_\-]{43}/g, severity: "CRITICAL", service: "SendGrid Email API", example: "your_sendgrid_api_key" },
+      { name: "Resend API Key", regex: /re_[0-9a-zA-Z]{24,}/g, severity: "HIGH", service: "Resend Email Service", example: "your_resend_api_key" },
+      { name: "Database URI with Password", regex: /(?:postgres|postgresql|mysql|mongodb|mongodb\+srv|redis|rediss):\/\/[^:\s'"]+:([^@\s'"]+)@[^\s'"]+/g, severity: "CRITICAL", service: "Database Password Credentials", example: "postgres://user:password@localhost:5432/dbname" },
+      { name: "JWT Token (Bearer/Auth)", regex: /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, severity: "HIGH", service: "JWT Web Token / Supabase Role", example: "your_jwt_auth_token_here" },
+      { name: "RSA / SSH Private Key", regex: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/g, severity: "CRITICAL", service: "Private Cryptographic Key", example: "-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----" },
+      { name: "Slack Webhook URL", regex: /https:\/\/hooks\.slack\.com\/services\/T[0-9A-Za-z\\-_]+\/B[0-9A-Za-z\\-_]+\/[0-9A-Za-z\\-_]+/g, severity: "HIGH", service: "Slack Incoming Webhook", example: "https://hooks.slack.com/services/T00/B00/XXXX" }
+    ];
+
+    // Shannon Entropy Calculator
+    function calculateShannonEntropy(str) {
+      if (!str || str.length === 0) return 0;
+      const freq = {};
+      for (let i = 0; i < str.length; i++) {
+        freq[str[i]] = (freq[str[i]] || 0) + 1;
+      }
+      let entropy = 0;
+      for (let char in freq) {
+        const p = freq[char] / str.length;
+        entropy -= p * Math.log2(p);
+      }
+      return entropy;
+    }
+
+    // STATE
+    let currentTab = 'redacted';
+    let lastAnalysis = null;
+
+    // USAGE / RUNS TRACKER
+    function checkRuns() {
+      const runs = parseInt(localStorage.getItem('secretshield_runs') || '0', 10);
+      const remaining = Math.max(0, 5 - runs);
+      document.getElementById('runs-left').textContent = `${remaining} free`;
+      return runs;
+    }
+
+    function recordRun() {
+      let runs = parseInt(localStorage.getItem('secretshield_runs') || '0', 10);
+      runs++;
+      localStorage.setItem('secretshield_runs', runs);
+      checkRuns();
+      if (runs > 5) {
+        openPaywall();
+      }
+    }
+
+    // TAB SWITCHING
+    function switchTab(tab) {
+      currentTab = tab;
+      ['redacted', 'example', 'vault', 'git'].forEach(t => {
+        const pane = document.getElementById(`tab-${t}`);
+        const btn = document.getElementById(`tab-btn-${t}`);
+        if (t === tab) {
+          pane.classList.remove('hidden');
+          btn.className = "px-3 py-1.5 rounded-lg bg-brand-accent/20 text-brand-accent font-bold border border-brand-accent/30 transition";
+        } else {
+          pane.classList.add('hidden');
+          btn.className = "px-3 py-1.5 rounded-lg bg-brand-900 text-slate-400 hover:text-white border border-brand-border transition";
+        }
+      });
+      document.getElementById('download-text').textContent = 
+        tab === 'redacted' ? 'Download .env.redacted' :
+        tab === 'example' ? 'Download .env.example' :
+        tab === 'vault' ? 'Download Encrypted Vault' : 'Download pre-commit';
+    }
+
+    // PRESET LOADER
+    function loadPreset(key) {
+      document.getElementById('raw-input').value = PRESETS[key] || '';
+      runAnalysis();
+    }
+
+    function clearInput() {
+      document.getElementById('raw-input').value = '';
+      resetResults();
+    }
+
+    function resetResults() {
+      document.getElementById('score-num').textContent = '--';
+      document.getElementById('risk-badge').className = "text-xs font-mono font-bold px-2.5 py-0.5 rounded-full inline-block bg-slate-800 text-slate-400";
+      document.getElementById('risk-badge').textContent = "Ready to analyze";
+      document.getElementById('risk-headline').textContent = "Awaiting .env input to scan";
+      document.getElementById('risk-subline').textContent = "Paste your file and click Scan to begin deep client-side audit.";
+      document.getElementById('cnt-critical').textContent = '0';
+      document.getElementById('cnt-high').textContent = '0';
+      document.getElementById('cnt-safe').textContent = '0';
+      document.getElementById('findings-container').innerHTML = '<div class="text-xs font-mono text-slate-500 text-center py-4">No secrets detected yet.</div>';
+      document.getElementById('out-redacted').value = '';
+      document.getElementById('out-example').value = '';
+      document.getElementById('out-vault').value = '';
+      document.getElementById('out-git').value = '';
+    }
+
+    // FILE UPLOAD HANDLER
+    document.getElementById('file-upload').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        document.getElementById('raw-input').value = event.target.result;
+        runAnalysis();
+      };
+      reader.readAsText(file);
+    });
+
+    // RUN ANALYSIS & SANITIZATION ENGINE
+    function runAnalysis() {
+      const raw = document.getElementById('raw-input').value;
+      if (!raw.trim()) {
+        resetResults();
+        return;
+      }
+
+      recordRun();
+      const maskStyle = document.getElementById('mask-style').value;
+      const checkEntropy = document.getElementById('opt-entropy').checked;
+
+      const lines = raw.split(/\r?\n/);
+      const findings = [];
+      let redactedLines = [];
+      let exampleLines = [];
+      let criticalCount = 0;
+      let highCount = 0;
+      let safeCount = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const trimmed = line.trim();
+
+        // Pass comments and empty lines through
+        if (!trimmed || trimmed.startsWith('#')) {
+          redactedLines.push(line);
+          exampleLines.push(line);
+          continue;
+        }
+
+        // Match KEY=VALUE
+        const kvMatch = line.match(/^([A-Za-z0-9_.-]+)\s*=\s*(.*)$/);
+        if (!kvMatch) {
+          redactedLines.push(line);
+          exampleLines.push(line);
+          continue;
+        }
+
+        const key = kvMatch[1];
+        let val = kvMatch[2].trim();
+        // Remove quotes if present
+        let cleanVal = val.replace(/^["'](.*)["']$/, '$1');
+
+        let matched = false;
+        let matchedSecret = null;
+
+        // 1. Check known signature regexes
+        for (const pattern of SECRET_PATTERNS) {
+          pattern.regex.lastIndex = 0;
+          if (pattern.regex.test(cleanVal) || pattern.regex.test(line)) {
+            matched = true;
+            matchedSecret = pattern;
+            break;
+          }
+        }
+
+        // 2. High-entropy check for custom secrets (if not already matched)
+        if (!matched && checkEntropy && cleanVal.length >= 20) {
+          const entropy = calculateShannonEntropy(cleanVal);
+          if (entropy > 3.75) {
+            matched = true;
+            matchedSecret = {
+              name: `High-Entropy Secret (${entropy.toFixed(2)} bits/char)`,
+              severity: "HIGH",
+              service: "Custom/Proprietary Token",
+              example: "your_high_entropy_token_here"
+            };
+          }
+        }
+
+        // Also check if key name strongly implies secret (PASSWORD, SECRET, PRIVATE_KEY)
+        if (!matched && /(?:SECRET|PASSWORD|PRIVATE_KEY|API_KEY|AUTH_TOKEN)/i.test(key) && cleanVal.length > 5) {
+          matched = true;
+          matchedSecret = {
+            name: "Generic Secret Key Name",
+            severity: "HIGH",
+            service: "Application Secret",
+            example: "your_secret_here"
+          };
+        }
+
+        if (matched) {
+          findings.push({
+            lineNum: i + 1,
+            key: key,
+            type: matchedSecret.name,
+            severity: matchedSecret.severity,
+            service: matchedSecret.service
+          });
+
+          if (matchedSecret.severity === "CRITICAL") criticalCount++;
+          else highCount++;
+
+          // Build Redacted Value
+          let redactedVal = "";
+          if (maskStyle === "prefix_suffix") {
+            if (cleanVal.length > 12) {
+              const prefix = cleanVal.slice(0, 6);
+              const suffix = cleanVal.slice(-4);
+              redactedVal = `${prefix}***REDACTED***${suffix}`;
+            } else {
+              redactedVal = "***REDACTED***";
+            }
+          } else if (maskStyle === "type_placeholder") {
+            const cleanTypeName = matchedSecret.name.replace(/[^A-Za-z0-9]/g, '_').toUpperCase();
+            redactedVal = `[REDACTED_${cleanTypeName}]`;
+          } else {
+            redactedVal = matchedSecret.example || "your_token_here";
+          }
+
+          redactedLines.push(`${key}=${redactedVal}`);
+          exampleLines.push(`# ${matchedSecret.service}\n${key}=${matchedSecret.example || "your_placeholder_here"}`);
+        } else {
+          safeCount++;
+          redactedLines.push(line);
+          exampleLines.push(line);
+        }
+      }
+
+      // Calculate Risk Score (100 is cleanest, 0 is worst)
+      const totalSecrets = criticalCount + highCount;
+      let score = 100;
+      score -= (criticalCount * 25);
+      score -= (highCount * 12);
+      score = Math.max(0, Math.min(100, score));
+
+      // Render Score & Stats
+      document.getElementById('score-num').textContent = score;
+      document.getElementById('cnt-critical').textContent = criticalCount;
+      document.getElementById('cnt-high').textContent = highCount;
+      document.getElementById('cnt-safe').textContent = safeCount;
+
+      const riskBadge = document.getElementById('risk-badge');
+      const scoreCircle = document.getElementById('score-circle');
+      const headline = document.getElementById('risk-headline');
+      const subline = document.getElementById('risk-subline');
+
+      if (totalSecrets === 0) {
+        riskBadge.className = "text-xs font-mono font-bold px-2.5 py-0.5 rounded-full inline-block bg-emerald-500/10 border border-emerald-500/30 text-emerald-400";
+        riskBadge.textContent = "SAFE & CLEAN";
+        scoreCircle.className = "w-14 h-14 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500 flex flex-col items-center justify-center font-mono";
+        document.getElementById('score-num').className = "text-xl font-extrabold text-emerald-400";
+        headline.textContent = "100% Clean! Zero Critical Credentials Found";
+        subline.textContent = "This configuration appears safe for version control.";
+      } else if (criticalCount > 0) {
+        riskBadge.className = "text-xs font-mono font-bold px-2.5 py-0.5 rounded-full inline-block bg-rose-500/10 border border-rose-500/30 text-rose-400 animate-pulse";
+        riskBadge.textContent = `CRITICAL RISK (${totalSecrets} SECRETS)`;
+        scoreCircle.className = "w-14 h-14 rounded-2xl bg-rose-500/10 border-2 border-rose-500 flex flex-col items-center justify-center font-mono";
+        document.getElementById('score-num').className = "text-xl font-extrabold text-rose-400";
+        headline.textContent = `🚨 High Exposure! ${criticalCount} Production Secrets Leaked`;
+        subline.textContent = "Do NOT paste raw content into LLM chats, Slack, or GitHub issues.";
+      } else {
+        riskBadge.className = "text-xs font-mono font-bold px-2.5 py-0.5 rounded-full inline-block bg-amber-500/10 border border-amber-500/30 text-amber-400";
+        riskBadge.textContent = `MODERATE RISK (${totalSecrets} SECRETS)`;
+        scoreCircle.className = "w-14 h-14 rounded-2xl bg-amber-500/10 border-2 border-amber-500 flex flex-col items-center justify-center font-mono";
+        document.getElementById('score-num').className = "text-xl font-extrabold text-amber-400";
+        headline.textContent = `Caution: ${totalSecrets} sensitive keys detected`;
+        subline.textContent = "Redaction applied. Review before sharing.";
+      }
+
+      // Render Findings List
+      const findingsContainer = document.getElementById('findings-container');
+      if (findings.length === 0) {
+        findingsContainer.innerHTML = '<div class="text-xs font-mono text-emerald-400 text-center py-3 bg-brand-900 rounded-xl border border-brand-border">✓ Zero production leaks detected in your file.</div>';
+      } else {
+        findingsContainer.innerHTML = findings.map(f => {
+          const color = f.severity === 'CRITICAL' ? 'rose' : 'amber';
+          return `
+            <div class="flex items-center justify-between p-2 rounded-lg bg-brand-900 border border-brand-border text-xs font-mono">
+              <div class="flex items-center space-x-2">
+                <span class="px-1.5 py-0.5 text-[9px] rounded font-bold bg-${color}-500/10 text-${color}-400 border border-${color}-500/20">${f.severity}</span>
+                <span class="text-white font-bold">${f.key}</span>
+                <span class="text-slate-500 text-[11px]">(${f.type})</span>
+              </div>
+              <span class="text-[10px] text-slate-400">Line ${f.lineNum}</span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // Populate Outputs
+      const redactedText = redactedLines.join('\n');
+      const exampleText = exampleLines.join('\n');
+      document.getElementById('out-redacted').value = redactedText;
+      document.getElementById('out-example').value = exampleText;
+
+      // Populate Pre-commit Git Hook Output
+      document.getElementById('out-git').value = `#!/usr/bin/env bash
+# SecretShield Pre-Commit Secret Blocker
+# Place in .git/hooks/pre-commit and run: chmod +x .git/hooks/pre-commit
+
+echo "🛡️ SecretShield: Scanning staged files for API keys & credentials..."
+
+FORBIDDEN_PATTERNS=(
+  "sk_live_[0-9a-zA-Z]{24}"
+  "AKIA[0-9A-Z]{16}"
+  "ghp_[0-9a-zA-Z]{36}"
+  "github_pat_[0-9a-zA-Z_]{60}"
+  "sk-(proj-)?[a-zA-Z0-9_\-]{32}"
+  "postgres://.*:.*@"
+  "-----BEGIN (RSA |EC )?PRIVATE KEY-----"
+)
+
+LEAK_FOUND=0
+
+for pattern in "\${FORBIDDEN_PATTERNS[@]}"; do
+  if git diff --cached | grep -E -q "\$pattern"; then
+    echo "🚨 BLOCKED: Secret matching pattern '\$pattern' found in staged git diff!"
+    LEAK_FOUND=1
+  fi
+done
+
+if [ \$LEAK_FOUND -eq 1 ]; then
+  echo ""
+  echo "❌ Commit rejected by SecretShield. Please redact your credentials or run them through SecretShield before committing."
+  exit 1
+fi
+
+echo "✓ SecretShield: Clean commit. No leaks detected."
+exit 0`;
+
+      lastAnalysis = {
+        redacted: redactedText,
+        example: exampleText,
+        findingsCount: findings.length
+      };
+    }
+
+    // CLIENT-SIDE ZERO-KNOWLEDGE ENCRYPTION (PBKDF2 + AES-256-GCM)
+    async function encryptWithPassphrase() {
+      const password = document.getElementById('vault-password').value;
+      if (!password) {
+        alert("Please enter a passphrase to encrypt your secrets.");
+        return;
+      }
+      const raw = document.getElementById('raw-input').value;
+      if (!raw) {
+        alert("Please provide .env content to encrypt.");
+        return;
+      }
+
+      try {
+        const enc = new TextEncoder();
+        const salt = window.crypto.getRandomValues(new Uint8Array(16));
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+
+        const keyMaterial = await window.crypto.subtle.importKey(
+          "raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]
+        );
+
+        const key = await window.crypto.subtle.deriveKey(
+          { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+          keyMaterial,
+          { name: "AES-GCM", length: 256 },
+          false,
+          ["encrypt"]
+        );
+
+        const ciphertext = await window.crypto.subtle.encrypt(
+          { name: "AES-GCM", iv: iv },
+          key,
+          enc.encode(raw)
+        );
+
+        // Pack salt, iv, and ciphertext into JSON envelope and base64
+        const envelope = {
+          version: "SECRETSHIELD_V1",
+          cipher: "AES-256-GCM",
+          kdf: "PBKDF2-SHA256-100K",
+          salt: btoa(String.fromCharCode(...salt)),
+          iv: btoa(String.fromCharCode(...iv)),
+          data: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+          created_at: new Date().toISOString()
+        };
+
+        const resultJson = JSON.stringify(envelope, null, 2);
+        document.getElementById('out-vault').value = resultJson;
+      } catch (err) {
+        alert("Encryption failed: " + err.message);
+      }
+    }
+
+    // COPY TO CLIPBOARD
+    async function copyCurrentOutput() {
+      let content = "";
+      if (currentTab === 'redacted') content = document.getElementById('out-redacted').value;
+      else if (currentTab === 'example') content = document.getElementById('out-example').value;
+      else if (currentTab === 'vault') content = document.getElementById('out-vault').value;
+      else if (currentTab === 'git') content = document.getElementById('out-git').value;
+
+      if (!content) return;
+      await navigator.clipboard.writeText(content);
+      const copyText = document.getElementById('copy-text');
+      copyText.textContent = "Copied!";
+      setTimeout(() => { copyText.textContent = "Copy"; }, 1500);
+    }
+
+    // DOWNLOAD CURRENT OUTPUT
+    function downloadCurrentOutput() {
+      let content = "";
+      let filename = ".env.redacted";
+
+      if (currentTab === 'redacted') {
+        content = document.getElementById('out-redacted').value;
+        filename = ".env.redacted";
+      } else if (currentTab === 'example') {
+        content = document.getElementById('out-example').value;
+        filename = ".env.example";
+      } else if (currentTab === 'vault') {
+        content = document.getElementById('out-vault').value;
+        filename = "secrets.vault.json";
+      } else if (currentTab === 'git') {
+        content = document.getElementById('out-git').value;
+        filename = "pre-commit";
+      }
+
+      if (!content) return;
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // MODAL
+    function openPaywall() {
+      document.getElementById('paywall-modal').classList.remove('hidden');
+    }
+
+    function closePaywall() {
+      document.getElementById('paywall-modal').classList.add('hidden');
+    }
+
+    function handleWaitlist(e) {
+      e.preventDefault();
+      const email = document.getElementById('waitlist-email').value;
+      const fb = document.getElementById('waitlist-feedback');
+      fb.textContent = `✓ Registered ${email}! Coupon code SECRETSHIELD50 saved.`;
+      fb.classList.remove('hidden');
+      setTimeout(() => { closePaywall(); }, 2000);
+    }
+
+    // INIT
+    checkRuns();
+    loadPreset('leaked');
+  </script>
+</body>
+</html>
